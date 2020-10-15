@@ -811,8 +811,7 @@ static inline const struct iommu_ops *iort_fwspec_iommu_ops(struct device *dev)
 	return (fwspec && fwspec->ops) ? fwspec->ops : NULL;
 }
 
-static inline int iort_add_device_replay(const struct iommu_ops *ops,
-					 struct device *dev)
+static inline int iort_add_device_replay(struct device *dev)
 {
 	int err = 0;
 
@@ -1072,7 +1071,7 @@ const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
 	 */
 	if (!err) {
 		ops = iort_fwspec_iommu_ops(dev);
-		err = iort_add_device_replay(ops, dev);
+		err = iort_add_device_replay(dev);
 	}
 
 	/* Ignore all other errors apart from EPROBE_DEFER */
@@ -1087,11 +1086,6 @@ const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
 }
 
 #else
-static inline const struct iommu_ops *iort_fwspec_iommu_ops(struct device *dev)
-{ return NULL; }
-static inline int iort_add_device_replay(const struct iommu_ops *ops,
-					 struct device *dev)
-{ return 0; }
 int iort_iommu_msi_get_resv_regions(struct device *dev, struct list_head *head)
 { return 0; }
 const struct iommu_ops *iort_iommu_configure_id(struct device *dev,
@@ -1335,7 +1329,7 @@ static int  __init arm_smmu_v3_set_proximity(struct device *dev,
 
 	smmu = (struct acpi_iort_smmu_v3 *)node->node_data;
 	if (smmu->flags & ACPI_IORT_SMMU_V3_PXM_VALID) {
-		int dev_node = acpi_map_pxm_to_node(smmu->pxm);
+		int dev_node = pxm_to_node(smmu->pxm);
 
 		if (dev_node != NUMA_NO_NODE && !node_online(dev_node))
 			return -EINVAL;
