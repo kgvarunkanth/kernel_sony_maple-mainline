@@ -695,13 +695,12 @@ static struct dma_chan *find_candidate(struct dma_device *device,
  */
 struct dma_chan *dma_get_slave_channel(struct dma_chan *chan)
 {
-	int err = -EBUSY;
-
 	/* lock against __dma_request_channel */
 	mutex_lock(&dma_list_mutex);
 
 	if (chan->client_count == 0) {
 		struct dma_device *device = chan->device;
+		int err;
 
 		dma_cap_set(DMA_PRIVATE, device->cap_mask);
 		device->privatecnt++;
@@ -1039,29 +1038,27 @@ static int get_dma_id(struct dma_device *device)
 static int __dma_async_device_channel_register(struct dma_device *device,
 					       struct dma_chan *chan)
 {
-	int rc = 0;
+	int rc;
 
 	chan->local = alloc_percpu(typeof(*chan->local));
 	if (!chan->local)
-		goto err_out;
+		return -ENOMEM;
 	chan->dev = kzalloc(sizeof(*chan->dev), GFP_KERNEL);
 	if (!chan->dev) {
-		free_percpu(chan->local);
-		chan->local = NULL;
-		goto err_out;
+		rc = -ENOMEM;
+		goto err_free_local;
 	}
 
 	/*
 	 * When the chan_id is a negative value, we are dynamically adding
 	 * the channel. Otherwise we are static enumerating.
 	 */
-	mutex_lock(&device->chan_mutex);
 	chan->chan_id = ida_alloc(&device->chan_ida, GFP_KERNEL);
-	mutex_unlock(&device->chan_mutex);
 	if (chan->chan_id < 0) {
 		pr_err("%s: unable to alloc ida for chan: %d\n",
 		       __func__, chan->chan_id);
-		goto err_out;
+		rc = chan->chan_id;
+		goto err_free_dev;
 	}
 
 	chan->dev->device.class = &dma_devclass;
@@ -1079,12 +1076,12 @@ static int __dma_async_device_channel_register(struct dma_device *device,
 	return 0;
 
  err_out_ida:
-	mutex_lock(&device->chan_mutex);
 	ida_free(&device->chan_ida, chan->chan_id);
-	mutex_unlock(&device->chan_mutex);
- err_out:
-	free_percpu(chan->local);
+ err_free_dev:
 	kfree(chan->dev);
+ err_free_local:
+	free_percpu(chan->local);
+	chan->local = NULL;
 	return rc;
 }
 
@@ -1109,13 +1106,10 @@ static void __dma_async_device_channel_unregister(struct dma_device *device,
 		  "%s called while %d clients hold a reference\n",
 		  __func__, chan->client_count);
 	mutex_lock(&dma_list_mutex);
-	list_del(&chan->device_node);
 	device->chancnt--;
 	chan->dev->chan = NULL;
 	mutex_unlock(&dma_list_mutex);
-	mutex_lock(&device->chan_mutex);
 	ida_free(&device->chan_ida, chan->chan_id);
-	mutex_unlock(&device->chan_mutex);
 	device_unregister(&chan->dev->device);
 	free_percpu(chan->local);
 }
@@ -1243,7 +1237,6 @@ int dma_async_device_register(struct dma_device *device)
 	if (rc != 0)
 		return rc;
 
-	mutex_init(&device->chan_mutex);
 	ida_init(&device->chan_ida);
 
 	/* represent channels in sysfs. Probably want devs too */

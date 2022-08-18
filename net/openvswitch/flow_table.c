@@ -390,7 +390,7 @@ static struct mask_cache *tbl_mask_cache_alloc(u32 size)
 }
 int ovs_flow_tbl_masks_cache_resize(struct flow_table *table, u32 size)
 {
-	struct mask_cache *mc = rcu_dereference(table->mask_cache);
+	struct mask_cache *mc = rcu_dereference_ovsl(table->mask_cache);
 	struct mask_cache *new;
 
 	if (size == mc->cache_size)
@@ -670,13 +670,13 @@ static bool cmp_key(const struct sw_flow_key *key1,
 {
 	const long *cp1 = (const long *)((const u8 *)key1 + key_start);
 	const long *cp2 = (const long *)((const u8 *)key2 + key_start);
-	long diffs = 0;
 	int i;
 
 	for (i = key_start; i < key_end; i += sizeof(long))
-		diffs |= *cp1++ ^ *cp2++;
+		if (*cp1++ ^ *cp2++)
+			return false;
 
-	return diffs == 0;
+	return true;
 }
 
 static bool flow_cmp_masked_key(const struct sw_flow *flow,

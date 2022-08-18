@@ -28,6 +28,7 @@
 #include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/panic_notifier.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/printk.h>
@@ -110,6 +111,8 @@ enum bsp_initiate_command {
 #define PM_INITIATE_FAIL	0xfe
 
 static struct brcmstb_pm_control ctrl;
+
+noinline int brcmstb_pm_s3_finish(void);
 
 static int (*brcmstb_pm_do_s2_sram)(void __iomem *aon_ctrl_base,
 		void __iomem *ddr_phy_pll_status);
@@ -718,7 +721,7 @@ static int brcmstb_pm_probe(struct platform_device *pdev)
 	ctrl.phy_a_standby_ctrl_offs = ddr_phy_data->phy_a_standby_ctrl_offs;
 	ctrl.phy_b_standby_ctrl_offs = ddr_phy_data->phy_b_standby_ctrl_offs;
 	/*
-	 * Slightly grosss to use the phy ver to get a memc,
+	 * Slightly gross to use the phy ver to get a memc,
 	 * offset but that is the only versioned things so far
 	 * we can test for.
 	 */
@@ -780,6 +783,7 @@ static int brcmstb_pm_probe(struct platform_device *pdev)
 	}
 
 	ret = brcmstb_init_sram(dn);
+	of_node_put(dn);
 	if (ret) {
 		pr_err("error setting up SRAM for PM\n");
 		return ret;

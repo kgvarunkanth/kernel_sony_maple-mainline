@@ -300,9 +300,10 @@ static int octeon_uart;
 extern asmlinkage void handle_int(void);
 
 /**
- * Return non zero if we are currently running in the Octeon simulator
+ * octeon_is_simulation - Return non-zero if we are currently running
+ * in the Octeon simulator
  *
- * Returns
+ * Return: non-0 if running in the Octeon simulator, 0 otherwise
  */
 int octeon_is_simulation(void)
 {
@@ -311,10 +312,10 @@ int octeon_is_simulation(void)
 EXPORT_SYMBOL(octeon_is_simulation);
 
 /**
- * Return true if Octeon is in PCI Host mode. This means
+ * octeon_is_pci_host - Return true if Octeon is in PCI Host mode. This means
  * Linux can control the PCI bus.
  *
- * Returns Non zero if Octeon in host mode.
+ * Return: Non-zero if Octeon is in host mode.
  */
 int octeon_is_pci_host(void)
 {
@@ -326,9 +327,9 @@ int octeon_is_pci_host(void)
 }
 
 /**
- * Get the clock rate of Octeon
+ * octeon_get_clock_rate - Get the clock rate of Octeon
  *
- * Returns Clock rate in HZ
+ * Return: Clock rate in HZ
  */
 uint64_t octeon_get_clock_rate(void)
 {
@@ -348,11 +349,11 @@ EXPORT_SYMBOL(octeon_get_io_clock_rate);
 
 
 /**
- * Write to the LCD display connected to the bootbus. This display
- * exists on most Cavium evaluation boards. If it doesn't exist, then
- * this function doesn't do anything.
- *
+ * octeon_write_lcd - Write to the LCD display connected to the bootbus.
  * @s:	    String to write
+ *
+ * This display exists on most Cavium evaluation boards. If it doesn't exist,
+ * then this function doesn't do anything.
  */
 static void octeon_write_lcd(const char *s)
 {
@@ -372,9 +373,9 @@ static void octeon_write_lcd(const char *s)
 }
 
 /**
- * Return the console uart passed by the bootloader
+ * octeon_get_boot_uart - Return the console uart passed by the bootloader
  *
- * Returns uart	  (0 or 1)
+ * Return: uart number (0 or 1)
  */
 static int octeon_get_boot_uart(void)
 {
@@ -383,9 +384,9 @@ static int octeon_get_boot_uart(void)
 }
 
 /**
- * Get the coremask Linux was booted on.
+ * octeon_get_boot_coremask - Get the coremask Linux was booted on.
  *
- * Returns Core mask
+ * Return: Core mask
  */
 int octeon_get_boot_coremask(void)
 {
@@ -393,7 +394,7 @@ int octeon_get_boot_coremask(void)
 }
 
 /**
- * Check the hardware BIST results for a CPU
+ * octeon_check_cpu_bist - Check the hardware BIST results for a CPU
  */
 void octeon_check_cpu_bist(void)
 {
@@ -424,7 +425,7 @@ void octeon_check_cpu_bist(void)
 }
 
 /**
- * Reboot Octeon
+ * octeon_restart - Reboot Octeon
  *
  * @command: Command to pass to the bootloader. Currently ignored.
  */
@@ -449,7 +450,7 @@ static void octeon_restart(char *command)
 
 
 /**
- * Permanently stop a core.
+ * octeon_kill_core - Permanently stop a core.
  *
  * @arg: Ignored.
  */
@@ -469,7 +470,7 @@ static void octeon_kill_core(void *arg)
 
 
 /**
- * Halt the system
+ * octeon_halt - Halt the system
  */
 static void octeon_halt(void)
 {
@@ -512,9 +513,9 @@ static void __init init_octeon_system_type(void)
 }
 
 /**
- * Return a string representing the system type
+ * octeon_board_type_string - Return a string representing the system type
  *
- * Returns
+ * Return: system type string
  */
 const char *octeon_board_type_string(void)
 {
@@ -655,7 +656,7 @@ void octeon_user_io_init(void)
 }
 
 /**
- * Early entry point for arch setup
+ * prom_init - Early entry point for arch setup
  */
 void __init prom_init(void)
 {
@@ -973,8 +974,6 @@ void __init plat_mem_setup(void)
 	uint64_t crashk_end;
 #ifndef CONFIG_CRASH_DUMP
 	int64_t memory;
-	uint64_t kernel_start;
-	uint64_t kernel_size;
 #endif
 
 	total = 0;
@@ -1078,13 +1077,6 @@ void __init plat_mem_setup(void)
 		}
 	}
 	cvmx_bootmem_unlock();
-	/* Add the memory region for the kernel. */
-	kernel_start = (unsigned long) _text;
-	kernel_size = _end - _text;
-
-	/* Adjust for physical offset. */
-	kernel_start &= ~0xffffffff80000000ULL;
-	memblock_add(kernel_start, kernel_size);
 #endif /* CONFIG_CRASH_DUMP */
 
 #ifdef CONFIG_CAVIUM_RESERVE32
@@ -1158,12 +1150,15 @@ void __init device_tree_init(void)
 	bool do_prune;
 	bool fill_mac;
 
-	if (fw_passed_dtb) {
-		fdt = (void *)fw_passed_dtb;
+#ifdef CONFIG_MIPS_ELF_APPENDED_DTB
+	if (!fdt_check_header(&__appended_dtb)) {
+		fdt = &__appended_dtb;
 		do_prune = false;
 		fill_mac = true;
 		pr_info("Using appended Device Tree.\n");
-	} else if (octeon_bootinfo->minor_version >= 3 && octeon_bootinfo->fdt_addr) {
+	} else
+#endif
+	if (octeon_bootinfo->minor_version >= 3 && octeon_bootinfo->fdt_addr) {
 		fdt = phys_to_virt(octeon_bootinfo->fdt_addr);
 		if (fdt_check_header(fdt))
 			panic("Corrupt Device Tree passed to kernel.");

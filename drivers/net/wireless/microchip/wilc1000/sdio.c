@@ -26,6 +26,7 @@ static const struct sdio_device_id wilc_sdio_ids[] = {
 struct wilc_sdio {
 	bool irq_gpio;
 	u32 block_size;
+	bool isinit;
 	int has_thrpt_enh3;
 };
 
@@ -129,10 +130,8 @@ static int wilc_sdio_probe(struct sdio_func *func,
 
 	ret = wilc_cfg80211_init(&wilc, &func->dev, WILC_HIF_SDIO,
 				 &wilc_hif_sdio);
-	if (ret) {
-		kfree(sdio_priv);
-		return ret;
-	}
+	if (ret)
+		goto free;
 
 	if (IS_ENABLED(CONFIG_WILC1000_HW_OOB_INTR)) {
 		struct device_node *np = func->card->dev.of_node;
@@ -148,25 +147,32 @@ static int wilc_sdio_probe(struct sdio_func *func,
 	wilc->bus_data = sdio_priv;
 	wilc->dev = &func->dev;
 
-	wilc->rtc_clk = devm_clk_get(&func->card->dev, "rtc");
-	if (PTR_ERR_OR_ZERO(wilc->rtc_clk) == -EPROBE_DEFER) {
-		kfree(sdio_priv);
-		return -EPROBE_DEFER;
-	} else if (!IS_ERR(wilc->rtc_clk))
-		clk_prepare_enable(wilc->rtc_clk);
+	wilc->rtc_clk = devm_clk_get_optional(&func->card->dev, "rtc");
+	if (IS_ERR(wilc->rtc_clk)) {
+		ret = PTR_ERR(wilc->rtc_clk);
+		goto dispose_irq;
+	}
+	clk_prepare_enable(wilc->rtc_clk);
 
 	dev_info(&func->dev, "Driver Initializing success\n");
 	return 0;
+
+dispose_irq:
+	irq_dispose_mapping(wilc->dev_irq_num);
+	wilc_netdev_cleanup(wilc);
+free:
+	kfree(sdio_priv);
+	return ret;
 }
 
 static void wilc_sdio_remove(struct sdio_func *func)
 {
 	struct wilc *wilc = sdio_get_drvdata(func);
+	struct wilc_sdio *sdio_priv = wilc->bus_data;
 
-	if (!IS_ERR(wilc->rtc_clk))
-		clk_disable_unprepare(wilc->rtc_clk);
-
+	clk_disable_unprepare(wilc->rtc_clk);
 	wilc_netdev_cleanup(wilc);
+	kfree(sdio_priv);
 }
 
 static int wilc_sdio_reset(struct wilc *wilc)
@@ -186,6 +192,13 @@ static int wilc_sdio_reset(struct wilc *wilc)
 		return ret;
 	}
 	return 0;
+}
+
+static bool wilc_sdio_is_init(struct wilc *wilc)
+{
+	struct wilc_sdio *sdio_priv = wilc->bus_data;
+
+	return sdio_priv->isinit;
 }
 
 static int wilc_sdio_suspend(struct device *dev)
@@ -576,6 +589,9 @@ static int wilc_sdio_read(struct wilc *wilc, u32 addr, u8 *buf, u32 size)
 
 static int wilc_sdio_deinit(struct wilc *wilc)
 {
+	struct wilc_sdio *sdio_priv = wilc->bus_data;
+
+	sdio_priv->isinit = false;
 	return 0;
 }
 
@@ -593,7 +609,7 @@ static int wilc_sdio_init(struct wilc *wilc, bool resume)
 	cmd.read_write = 1;
 	cmd.function = 0;
 	cmd.raw = 1;
-	cmd.address = SDIO_FBR_BASE(func->num);
+	cmd.address = SDIO_FBR_BASE(1);
 	cmd.data = SDIO_FBR_ENABLE_CSA;
 	ret = wilc_sdio_cmd52(wilc, &cmd);
 	if (ret) {
@@ -695,6 +711,7 @@ static int wilc_sdio_init(struct wilc *wilc, bool resume)
 			 sdio_priv->has_thrpt_enh3);
 	}
 
+	sdio_priv->isinit = true;
 	return 0;
 }
 
@@ -947,7 +964,7 @@ static int wilc_sdio_sync_ext(struct wilc *wilc, int nint)
 			for (i = 0; (i < 3) && (nint > 0); i++, nint--)
 				reg |= BIT(i);
 
-			ret = wilc_sdio_read_reg(wilc, WILC_INTR2_ENABLE, &reg);
+			ret = wilc_sdio_write_reg(wilc, WILC_INTR2_ENABLE, reg);
 			if (ret) {
 				dev_err(&func->dev,
 					"Failed write reg (%08x)...\n",
@@ -975,6 +992,8 @@ static const struct wilc_hif_func wilc_hif_sdio = {
 	.hif_sync_ext = wilc_sdio_sync_ext,
 	.enable_interrupt = wilc_sdio_enable_interrupt,
 	.disable_interrupt = wilc_sdio_disable_interrupt,
+	.hif_reset = wilc_sdio_reset,
+	.hif_is_init = wilc_sdio_is_init,
 };
 
 static int wilc_sdio_resume(struct device *dev)
